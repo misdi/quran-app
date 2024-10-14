@@ -12,7 +12,6 @@ interface Verse {
   text_uthmani: string;
   transliteration: { text: string };
   translations: { text: string }[];
-  audio: { url: string };
 }
 
 interface QuranContentProps {
@@ -29,6 +28,7 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`https://api.quran.com/api/v4/chapters/${surahId}?language=en`)
@@ -36,7 +36,7 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
       .then(data => setSurah(data.chapter))
       .catch(error => console.error('Error fetching Surah:', error));
 
-    fetch(`https://api.quran.com/api/v4/verses/by_chapter/${surahId}?language=en&words=true&translations=${translation}&fields=text_uthmani,verse_key,audio&word_fields=text_uthmani,transliteration`)
+    fetch(`https://api.quran.com/api/v4/verses/by_chapter/${surahId}?language=en&words=true&translations=${translation}&fields=text_uthmani,verse_key&word_fields=text_uthmani,transliteration`)
       .then(response => response.json())
       .then(data => {
         const processedVerses = data.verses.map((verse: any) => ({
@@ -48,12 +48,19 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
         setVerses(processedVerses);
       })
       .catch(error => console.error('Error fetching verses:', error));
+
+    fetch(`https://api.quran.com/api/v4/chapter_recitations/1/${surahId}`)
+      .then(response => response.json())
+      .then(data => setAudioUrl(data.audio_file.audio_url))
+      .catch(error => console.error('Error fetching audio URL:', error));
   }, [surahId, translation]);
 
-  const toggleAudio = (verseId: number, audioUrl: string) => {
+  const toggleAudio = (verseNumber: number) => {
+    if (!audioUrl) return;
+
     if (currentAudio) {
       currentAudio.pause();
-      if (currentVerse === verseId) {
+      if (currentVerse === verseNumber) {
         setIsPlaying(false);
         setCurrentVerse(null);
         setCurrentAudio(null);
@@ -62,9 +69,12 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
     }
 
     const audio = new Audio(audioUrl);
+    const startTime = (verseNumber - 1) * 5; // Approximate start time, adjust as needed
+    audio.currentTime = startTime;
+
     audio.play();
     setIsPlaying(true);
-    setCurrentVerse(verseId);
+    setCurrentVerse(verseNumber);
     setCurrentAudio(audio);
 
     audio.onended = () => {
@@ -124,14 +134,15 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    onClick={() => toggleAudio(verse.id, verse.audio.url)}
+                    onClick={() => toggleAudio(parseInt(verse.verse_key.split(':')[1]))}
+                    disabled={!audioUrl}
                   >
-                    {currentVerse === verse.id && isPlaying ? (
+                    {currentVerse === parseInt(verse.verse_key.split(':')[1]) && isPlaying ? (
                       <Pause className="w-4 h-4 mr-2" />
                     ) : (
                       <Play className="w-4 h-4 mr-2" />
                     )}
-                    {currentVerse === verse.id && isPlaying ? 'Pause' : 'Play Verse'}
+                    {currentVerse === parseInt(verse.verse_key.split(':')[1]) && isPlaying ? 'Pause' : 'Play Verse'}
                   </Button>
                 </div>
                 <p className={`text-xl mb-2 text-right ${getFontSize(fontSize)}`} dir="rtl" style={{ fontFamily: arabicFont }}>{verse.text_uthmani}</p>
