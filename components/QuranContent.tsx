@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack } from 'lucide-react';
 
 interface Verse {
   id: number;
@@ -26,9 +26,11 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
   const [verses, setVerses] = useState<Verse[]>([]);
   const [translation, setTranslation] = useState('131');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const verseRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     fetch(`https://api.quran.com/api/v4/chapters/${surahId}?language=en`)
@@ -46,6 +48,7 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
           }
         }));
         setVerses(processedVerses);
+        verseRefs.current = processedVerses.map(() => null);
       })
       .catch(error => console.error('Error fetching verses:', error));
 
@@ -55,33 +58,79 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
       .catch(error => console.error('Error fetching audio URL:', error));
   }, [surahId, translation]);
 
-  const toggleAudio = (verseNumber: number) => {
-    if (!audioUrl) return;
-
-    if (currentAudio) {
-      currentAudio.pause();
-      if (currentVerse === verseNumber) {
-        setIsPlaying(false);
-        setCurrentVerse(null);
-        setCurrentAudio(null);
-        return;
-      }
+  useEffect(() => {
+    if (audioUrl) {
+      audioRef.current = new Audio(audioUrl);
+      audioRef.current.addEventListener('ended', handleAudioEnded);
     }
 
-    const audio = new Audio(audioUrl);
-    const startTime = (verseNumber - 1) * 5; // Approximate start time, adjust as needed
-    audio.currentTime = startTime;
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.removeEventListener('ended', handleAudioEnded);
+        audioRef.current.pause();
+      }
+    };
+  }, [audioUrl]);
 
-    audio.play();
+  useEffect(() => {
+    if (currentVerse !== null) {
+      scrollToVerse(currentVerse);
+    }
+  }, [currentVerse]);
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setCurrentVerse(null);
+  };
+
+  const togglePlayAll = () => {
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+      setCurrentVerse(1);
+    }
+  };
+
+  const playVerse = (verseNumber: number) => {
+    if (!audioRef.current) return;
+
+    const startTime = (verseNumber - 1) * 5; // Approximate start time, adjust as needed
+    audioRef.current.currentTime = startTime;
+    audioRef.current.play();
     setIsPlaying(true);
     setCurrentVerse(verseNumber);
-    setCurrentAudio(audio);
+  };
 
-    audio.onended = () => {
-      setIsPlaying(false);
-      setCurrentVerse(null);
-      setCurrentAudio(null);
-    };
+  const nextVerse = () => {
+    if (currentVerse && currentVerse < verses.length) {
+      playVerse(currentVerse + 1);
+    }
+  };
+
+  const previousVerse = () => {
+    if (currentVerse && currentVerse > 1) {
+      playVerse(currentVerse - 1);
+    }
+  };
+
+  const scrollToVerse = (verseNumber: number) => {
+    const verseElement = verseRefs.current[verseNumber - 1];
+    if (verseElement && scrollAreaRef.current) {
+      const scrollArea = scrollAreaRef.current;
+      const verseTop = verseElement.offsetTop;
+      const scrollAreaHeight = scrollArea.clientHeight;
+      const scrollTop = verseTop - scrollAreaHeight / 2 + verseElement.clientHeight / 2;
+      
+      scrollArea.scrollTo({
+        top: scrollTop,
+        behavior: 'smooth'
+      });
+    }
   };
 
   const getFontSize = (size: string) => {
@@ -108,48 +157,69 @@ export default function QuranContent({ surahId, arabicFont, textFont, fontSize }
   };
 
   return (
-    <div className="flex-1 p-6 bg-background text-foreground">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">{surah ? `${surah.name_arabic} - ${surah.name_simple}` : 'Loading...'}</h1>
-        <div className="flex items-center space-x-4">
-          <Select value={translation} onValueChange={setTranslation}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select translation" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="131">English - Sahih International</SelectItem>
-              <SelectItem value="33">Indonesian - Kementerian Agama</SelectItem>
-            </SelectContent>
-          </Select>
+    <div className="flex-1 flex flex-col h-full bg-background text-foreground">
+      <div className="p-6 border-b border-border">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">{surah ? `${surah.name_arabic} - ${surah.name_simple}` : 'Loading...'}</h1>
+          <div className="flex items-center space-x-4">
+            <Select value={translation} onValueChange={setTranslation}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select translation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="131">English - Sahih International</SelectItem>
+                <SelectItem value="33">Indonesian - Kementerian Agama</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        {surah && <p className={`${getFontSize(fontSize)}`}>{surah.translated_name.name}</p>}
+        <div className="flex items-center space-x-2 mt-4">
+          <Button onClick={togglePlayAll} disabled={!audioUrl}>
+            {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+            {isPlaying ? 'Pause Surah' : 'Play Surah'}
+          </Button>
+          <Button onClick={previousVerse} disabled={!isPlaying || currentVerse === 1}>
+            <SkipBack className="w-4 h-4" />
+          </Button>
+          <Button onClick={nextVerse} disabled={!isPlaying || currentVerse === verses.length}>
+            <SkipForward className="w-4 h-4" />
+          </Button>
         </div>
       </div>
-      <ScrollArea className="h-[calc(100vh-120px)]">
-        {surah && verses.length > 0 ? (
+      <ScrollArea className="flex-1 p-6" ref={scrollAreaRef}>
+        {verses.length > 0 ? (
           <div className="space-y-6">
-            <p className={`${getFontSize(fontSize)} mb-4`}>{surah.translated_name.name}</p>
-            {verses.map((verse) => (
-              <div key={verse.id} className="border-b border-border pb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="text-sm text-muted-foreground">[{verse.verse_key}]</p>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => toggleAudio(parseInt(verse.verse_key.split(':')[1]))}
-                    disabled={!audioUrl}
-                  >
-                    {currentVerse === parseInt(verse.verse_key.split(':')[1]) && isPlaying ? (
-                      <Pause className="w-4 h-4 mr-2" />
-                    ) : (
-                      <Play className="w-4 h-4 mr-2" />
-                    )}
-                    {currentVerse === parseInt(verse.verse_key.split(':')[1]) && isPlaying ? 'Pause' : 'Play Verse'}
-                  </Button>
+            {verses.map((verse, index) => {
+              const verseNumber = parseInt(verse.verse_key.split(':')[1]);
+              return (
+                <div 
+                  key={verse.id} 
+                  className={`border-b border-border pb-4 ${currentVerse === verseNumber ? 'bg-accent/10 rounded-lg p-4' : ''}`}
+                  ref={el => verseRefs.current[index] = el}
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-sm text-muted-foreground">[{verse.verse_key}]</p>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => playVerse(verseNumber)}
+                      disabled={!audioUrl}
+                    >
+                      {currentVerse === verseNumber && isPlaying ? (
+                        <Pause className="w-4 h-4 mr-2" />
+                      ) : (
+                        <Play className="w-4 h-4 mr-2" />
+                      )}
+                      {currentVerse === verseNumber && isPlaying ? 'Pause' : 'Play Verse'}
+                    </Button>
+                  </div>
+                  <p className={`text-2xl mb-2 text-right leading-loose ${getFontSize(fontSize)}`} dir="rtl" style={{ fontFamily: arabicFont }}>{verse.text_uthmani}</p>
+                  <p className={`mb-2 italic ${getFontSize(fontSize)}`} style={{ fontFamily: textFont }}>{verse.transliteration.text}</p>
+                  <p className={`${getFontSize(fontSize)}`} style={{ fontFamily: textFont }}>{renderTranslation(verse.translations[0].text)}</p>
                 </div>
-                <p className={`text-xl mb-2 text-right ${getFontSize(fontSize)}`} dir="rtl" style={{ fontFamily: arabicFont }}>{verse.text_uthmani}</p>
-                <p className={`mb-2 italic ${getFontSize(fontSize)}`} style={{ fontFamily: textFont }}>{verse.transliteration.text}</p>
-                <p className={`${getFontSize(fontSize)}`} style={{ fontFamily: textFont }}>{renderTranslation(verse.translations[0].text)}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p>Loading Surah content...</p>
