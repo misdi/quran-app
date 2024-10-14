@@ -27,7 +27,7 @@ export default function Home() {
       <Sidebar onSurahSelect={setSelectedSurah} />
       <div className="flex-1 flex flex-col">
         <header className="border-b border-border p-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Quran App Beta 1</h1>
+          <h1 className="text-2xl font-bold">Quran App Beta 2</h1>
           <div className="flex items-center space-x-2">
             <Popover>
               <PopoverTrigger asChild>
